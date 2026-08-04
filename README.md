@@ -134,10 +134,15 @@ Missing event properties come back from HogQL as `NULL`, not as an empty string.
 | `digest.py` | Builds the message, posts it |
 | `.github/workflows/daily-digest.yml` | The 13:00 UTC cron and the secret mapping |
 
-## Wider context
+## Documentation
 
-This repo is one piece of a larger analytics setup. Background lives in `~/Downloads` on Martin's machine:
+Everything explaining why this exists lives in [`docs/`](docs/):
 
-- `nori_posthog_setup_guide.md` — remaining PostHog setup, click by click
-- `nori_slack_utm_workflow_spec.md` — the self-service UTM link builder
-- `nori_hubspot_handoff.md` and `nori_crm_design_brief.md` — the CRM side
+- [`DECISIONS.md`](docs/DECISIONS.md) — why the webhook, why no link builder yet, the Linear workspace, TIL-17, security, and everything still open
+- [`utm-taxonomy.md`](docs/utm-taxonomy.md) — the link-tagging vocabulary and the three ways to destroy the data
+- [`nori_posthog_setup_guide.md`](docs/nori_posthog_setup_guide.md) — remaining PostHog setup, click by click
+- [`nori_slack_utm_workflow_spec.md`](docs/nori_slack_utm_workflow_spec.md) — build spec for the self-service link builder
+- [`nori_hubspot_handoff.md`](docs/nori_hubspot_handoff.md) — HubSpot object model and import mechanics
+- [`nori_crm_design_brief.md`](docs/nori_crm_design_brief.md) — CRM spreadsheet schema and outreach logic
+
+Customer email addresses in the HubSpot docs are redacted, since this repo is public.
