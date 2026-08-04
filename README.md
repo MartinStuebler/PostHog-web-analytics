@@ -109,6 +109,33 @@ Needs Python 3.9 or newer.
 
 ---
 
+## Changing what it posts
+
+Where to edit, in the order you will usually want them:
+
+| To change | Edit |
+|---|---|
+| Wording, layout, emoji, line order | `build_blocks()` in `digest.py` |
+| Which numbers exist at all | the four HogQL queries in `posthog_client.py` |
+| Project id, host filter | `config.py` |
+| Time of day | the `cron` in `.github/workflows/daily-digest.yml` |
+
+Then:
+
+1. Edit.
+2. Dry run locally. Slack is not involved and nothing is posted:
+   ```bash
+   export POSTHOG_API_KEY='…'
+   python3 digest.py --dry-run
+   ```
+   It prints the exact rendered message. The key cannot be read back out of GitHub, so mint a `query:read` key from PostHog if you no longer have it.
+3. Commit and push to `main`. The Action runs whatever is on `main`. No build, no release step.
+4. Verify live once: `gh workflow run daily-digest.yml --repo MartinStuebler/PostHog-web-analytics`, then check the run log says `Posted.`
+
+**Iterate on `--dry-run`, dispatch once at the end.** Every dispatch posts a real message into `#growth-and-marketing`, and nobody on this account can delete it. Five setup test messages are already stuck there permanently for exactly this reason. See `docs/DECISIONS.md`.
+
+---
+
 ## Known limits
 
 - **Every number is a floor.** No reverse proxy is configured on the PostHog install, so ad blockers drop an unknown share of events. PostHog's own estimate is 10 to 25%.
