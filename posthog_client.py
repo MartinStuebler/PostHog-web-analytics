@@ -1,4 +1,10 @@
-"""Thin PostHog query-API client. Standard library only, no dependencies."""
+"""Thin PostHog query-API client. Standard library only, no dependencies.
+
+Four small queries, each answering one line of the digest. Anything that does
+not change a reader's day was deliberately left out.
+"""
+
+from __future__ import annotations
 
 import json
 import urllib.error
@@ -12,11 +18,7 @@ class PostHogError(RuntimeError):
 
 
 def run_hogql(query: str, api_key: str) -> list[dict]:
-    """Run a HogQL query and return rows as a list of dicts keyed by column name.
-
-    The query API returns {"results": [[...]], "columns": [...]}; this flattens
-    that into something callers can read by name instead of index.
-    """
+    """Run a HogQL query, return rows as dicts keyed by column name."""
     url = f"{config.POSTHOG_HOST}/api/projects/{config.PROJECT_ID}/query/"
     body = json.dumps({"query": {"kind": "HogQLQuery", "query": query}}).encode()
 
@@ -44,100 +46,97 @@ def run_hogql(query: str, api_key: str) -> list[dict]:
     return [dict(zip(columns, row)) for row in results]
 
 
-def _window(days_back: int) -> str:
-    """SQL fragment for a single whole day, `days_back` days before today.
-
-    days_back=1 is yesterday. Days are bounded by the project timezone, which
-    is what PostHog's own UI uses, so these numbers reconcile with the web
-    analytics screens.
-    """
-    return (
-        f"timestamp >= toStartOfDay(now()) - INTERVAL {days_back} DAY "
-        f"AND timestamp < toStartOfDay(now()) - INTERVAL {days_back - 1} DAY"
-    )
-
-
 def _host_filter() -> str:
+    """Only the marketing site.
+
+    Four domains report into this project: noriagentic.com, usenori.ai and two
+    `ta-01k…` preview sandboxes. Without this the numbers silently combine them.
+    """
     host = config.SITE_HOST.replace("'", "''")
     return f"properties.$host = '{host}'"
 
 
-def daily_totals(api_key: str) -> list[dict]:
-    """Yesterday and the day before, so the digest can show a delta."""
+# Yesterday, bounded by the project timezone so these reconcile with the UI.
+_YESTERDAY = (
+    "timestamp >= toStartOfDay(now()) - INTERVAL 1 DAY "
+    "AND timestamp < toStartOfDay(now())"
+)
+
+
+def yesterday_totals(api_key: str) -> dict | None:
     query = f"""
         SELECT
             toDate(timestamp) AS day,
             uniq(person_id) AS visitors,
-            countIf(event = '$pageview') AS pageviews,
-            uniq(properties.$session_id) AS sessions
+            countIf(event = '$pageview') AS pageviews
         FROM events
-        WHERE timestamp >= toStartOfDay(now()) - INTERVAL 2 DAY
-          AND timestamp < toStartOfDay(now())
+        WHERE {_YESTERDAY}
           AND {_host_filter()}
         GROUP BY day
-        ORDER BY day
     """
-    return run_hogql(query, api_key)
+    rows = run_hogql(query, api_key)
+    return rows[0] if rows else None
 
 
-def top_pages(api_key: str) -> list[dict]:
+def baseline_visitors(api_key: str) -> float | None:
+    """Mean daily visitors over the seven days before yesterday.
+
+    Deliberately not day-over-day. At 30 to 50 visitors a single day swings
+    hard enough that a percentage against yesterday is noise wearing a suit.
+    """
+    query = f"""
+        SELECT avg(visitors) AS baseline
+        FROM (
+            SELECT toDate(timestamp) AS day, uniq(person_id) AS visitors
+            FROM events
+            WHERE timestamp >= toStartOfDay(now()) - INTERVAL 8 DAY
+              AND timestamp < toStartOfDay(now()) - INTERVAL 1 DAY
+              AND {_host_filter()}
+            GROUP BY day
+        )
+    """
+    rows = run_hogql(query, api_key)
+    if not rows or rows[0].get("baseline") is None:
+        return None
+    return float(rows[0]["baseline"])
+
+
+def top_page_excluding_home(api_key: str) -> dict | None:
+    """The most-read page that is not the homepage.
+
+    `/` wins every day and says nothing. The second place is the actual signal.
+    """
     query = f"""
         SELECT
             properties.$pathname AS path,
-            uniq(person_id) AS visitors,
-            count() AS views
-        FROM events
-        WHERE event = '$pageview'
-          AND {_window(1)}
-          AND {_host_filter()}
-        GROUP BY path
-        ORDER BY visitors DESC
-        LIMIT {config.TOP_PAGES}
-    """
-    return run_hogql(query, api_key)
-
-
-def top_sources(api_key: str) -> list[dict]:
-    """Group by utm_source where tagged, falling back to referring domain.
-
-    Deliberately not using PostHog's derived channel type: this keeps the
-    digest honest about which visits actually carried a UTM tag.
-    """
-    query = f"""
-        SELECT
-            multiIf(
-                coalesce(properties.utm_source, '') != '',
-                    properties.utm_source,
-                coalesce(properties.$referring_domain, '') IN ('', '$direct'),
-                    'direct',
-                properties.$referring_domain
-            ) AS source,
             uniq(person_id) AS visitors
         FROM events
         WHERE event = '$pageview'
-          AND {_window(1)}
+          AND {_YESTERDAY}
           AND {_host_filter()}
-        GROUP BY source
+          AND coalesce(properties.$pathname, '/') NOT IN ('/', '')
+        GROUP BY path
         ORDER BY visitors DESC
-        LIMIT {config.TOP_SOURCES}
+        LIMIT 1
     """
-    return run_hogql(query, api_key)
+    rows = run_hogql(query, api_key)
+    return rows[0] if rows else None
 
 
 def tagged_campaigns(api_key: str) -> list[dict]:
-    """Visits that arrived on a UTM-tagged link, by campaign."""
+    """Visits that arrived on a UTM-tagged link. Usually empty, and that is
+    itself the finding."""
     query = f"""
         SELECT
             properties.utm_campaign AS campaign,
-            coalesce(properties.utm_source, 'unknown') AS source,
             uniq(person_id) AS visitors
         FROM events
         WHERE event = '$pageview'
-          AND {_window(1)}
+          AND {_YESTERDAY}
           AND {_host_filter()}
           AND coalesce(properties.utm_campaign, '') != ''
-        GROUP BY campaign, source
+        GROUP BY campaign
         ORDER BY visitors DESC
-        LIMIT 10
+        LIMIT 5
     """
     return run_hogql(query, api_key)

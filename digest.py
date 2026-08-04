@@ -1,9 +1,16 @@
 """Build the daily Slack digest and post it.
 
+Three lines, by design. Anything that does not change the reader's day was
+cut: sessions duplicate visitors, pages three to five are two-visitor noise,
+and a day-over-day percentage at this volume is noise wearing a suit.
+
 Run:  POSTHOG_API_KEY=… SLACK_WEBHOOK_URL=… python3 digest.py
 Dry run (prints, posts nothing):  python3 digest.py --dry-run
 """
 
+from __future__ import annotations
+
+import datetime as dt
 import json
 import os
 import sys
@@ -14,76 +21,66 @@ import config
 import posthog_client as ph
 
 
-def _delta(today: int, yesterday: int) -> str:
-    """Human-readable change. Avoids a percentage when the base is tiny,
-    because at this traffic level percentages read as false precision."""
-    if yesterday == 0:
-        return "no prior day"
-    diff = today - yesterday
-    if diff == 0:
-        return "flat"
-    pct = round(abs(diff) / yesterday * 100)
-    arrow = "up" if diff > 0 else "down"
-    if yesterday < 10:
-        return f"{arrow} {abs(diff)} from {yesterday}"
-    return f"{arrow} {pct}% from {yesterday}"
+def _pretty_day(value) -> str:
+    """'2026-08-03' becomes 'Mon 3 Aug'."""
+    if isinstance(value, dt.date):
+        day = value
+    else:
+        try:
+            day = dt.date.fromisoformat(str(value)[:10])
+        except ValueError:
+            return str(value)
+    return f"{day:%a} {day.day} {day:%b}"
 
 
-def build_blocks(totals, pages, sources, campaigns) -> list[dict]:
-    if not totals:
+def _comparison(visitors: int, baseline: float | None) -> str:
+    if baseline is None or baseline <= 0:
+        return "No baseline yet."
+    rounded = round(baseline)
+    # Within 15% of the mean is not a story at this sample size.
+    if abs(visitors - baseline) <= baseline * 0.15:
+        return f"In line with the 7-day average of {rounded}."
+    direction = "Above" if visitors > baseline else "Below"
+    return f"{direction} the 7-day average of {rounded}."
+
+
+def build_blocks(totals, baseline, top_page, campaigns) -> list[dict]:
+    if not totals or not totals.get("visitors"):
         return [{
             "type": "section",
-            "text": {"type": "mrkdwn",
-                     "text": f":warning: *{config.SITE_HOST}* — no events yesterday. "
-                             "Either traffic genuinely stopped or the snippet is not firing."},
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f":red_circle: *{config.SITE_HOST}* recorded no visitors yesterday.\n"
+                    "Either traffic genuinely stopped or the snippet is no longer firing."
+                ),
+            },
         }]
 
-    latest = totals[-1]
-    prior = totals[-2] if len(totals) > 1 else {"visitors": 0, "pageviews": 0, "sessions": 0}
-
-    headline = (
-        f"*{latest['visitors']} visitors* · {latest['pageviews']} pageviews · "
-        f"{latest['sessions']} sessions"
-    )
-    movement = (
-        f"Visitors {_delta(latest['visitors'], prior['visitors'])}. "
-        f"Pageviews {_delta(latest['pageviews'], prior['pageviews'])}."
-    )
-
-    blocks = [
-        {"type": "header",
-         "text": {"type": "plain_text", "text": f"{config.SITE_HOST} · {latest['day']}"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"{headline}\n{movement}"}},
+    lines = [
+        f"*{config.SITE_HOST} · {_pretty_day(totals['day'])}*",
+        f"{totals['visitors']} visitors, {totals['pageviews']} pageviews. "
+        f"{_comparison(totals['visitors'], baseline)}",
+        "",
     ]
 
-    if pages:
-        lines = "\n".join(
-            f"`{p['path'] or '/'}` — {p['visitors']} visitors, {p['views']} views"
-            for p in pages
+    if top_page:
+        lines.append(
+            f"Most read after the homepage: `{top_page['path']}`, "
+            f"{top_page['visitors']} visitors"
         )
-        blocks.append({"type": "section",
-                       "text": {"type": "mrkdwn", "text": f"*Top pages*\n{lines}"}})
+    else:
+        lines.append("Only the homepage was read.")
 
-    if sources:
-        lines = "\n".join(f"{s['source']} — {s['visitors']}" for s in sources)
-        blocks.append({"type": "section",
-                       "text": {"type": "mrkdwn", "text": f"*Where they came from*\n{lines}"}})
+    lines.append("")
 
     if campaigns:
-        lines = "\n".join(
-            f"`{c['campaign']}` via {c['source']} — {c['visitors']}" for c in campaigns
-        )
-        blocks.append({"type": "section",
-                       "text": {"type": "mrkdwn", "text": f"*Tagged campaigns*\n{lines}"}})
+        for c in campaigns:
+            lines.append(f":tada: *{c['campaign']}* brought {c['visitors']} visitors")
     else:
-        blocks.append({"type": "context", "elements": [
-            {"type": "mrkdwn", "text": "_No UTM-tagged visits yesterday._"}]})
+        lines.append("No tagged campaigns landed.")
 
-    blocks.append({"type": "context", "elements": [
-        {"type": "mrkdwn",
-         "text": f"Filtered to {config.SITE_HOST}. Excludes usenori.ai and preview hosts. "
-                 "Ad blockers are not proxied, so treat these as a floor."}]})
-    return blocks
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
 
 
 def post_to_slack(blocks: list[dict], webhook: str) -> None:
@@ -109,15 +106,15 @@ def main() -> int:
         print("POSTHOG_API_KEY is not set", file=sys.stderr)
         return 1
 
-    totals = ph.daily_totals(api_key)
-    pages = ph.top_pages(api_key)
-    sources = ph.top_sources(api_key)
+    totals = ph.yesterday_totals(api_key)
+    baseline = ph.baseline_visitors(api_key)
+    top_page = ph.top_page_excluding_home(api_key)
     campaigns = ph.tagged_campaigns(api_key)
 
-    blocks = build_blocks(totals, pages, sources, campaigns)
+    blocks = build_blocks(totals, baseline, top_page, campaigns)
 
     if dry_run:
-        print(json.dumps(blocks, indent=2, default=str))
+        print(blocks[0]["text"]["text"])
         return 0
 
     webhook = os.environ.get("SLACK_WEBHOOK_URL")
