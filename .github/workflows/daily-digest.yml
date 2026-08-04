@@ -1,0 +1,25 @@
+name: Daily PostHog digest to Slack
+
+on:
+  schedule:
+    # 13:00 UTC = 9am America/New_York during EDT.
+    # GitHub cron has no DST awareness, so this drifts to 8am ET in winter.
+    # Change to '0 14 * * *' when the clocks go back if 9am matters.
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Post digest
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python3 digest.py
