@@ -17,6 +17,10 @@ A "keep the channel clean by deleting yesterday's post" change was raised and th
 
 If it is ever revisited, `chat.update` beats delete: one permanent message that rewrites itself, with no gap where the channel is empty.
 
+**Revisited and closed on 2026-08-04.** Four test messages accumulated in the channel during setup and prompted a second look at the bot-token rework. Decision: delete those four by hand and keep the webhook. Steady state is one message a day, which is not worth a token, a scope, a channel invite, a fifth secret and a state file committed back by the Action on every run.
+
+Target channel is `#growth-and-marketing`.
+
 ---
 
 ## Why the Slack UTM builder was never built
@@ -75,7 +79,11 @@ A live Slack token beginning `xoxe.xoxp-` was pasted into the working chat durin
 
 **This has not been independently verified as revoked.** Confirm it.
 
-The webhook currently in use was created afterwards and is stored only as a GitHub Actions secret.
+A second exposure followed: the Incoming Webhooks settings page was pasted into the same chat, and Slack's "sample curl request" on that page renders the real webhook URL once one exists. Lower severity than the token, since a webhook only permits posting into one channel and reads nothing, but it allows anyone holding it to post there. The fix is to delete the webhook on that page, add a new one, and replace the `POSTHOG_SLACK_KEY_GROWTH` secret.
+
+**Both exposures need confirming as closed.** Neither has been independently verified.
+
+The general rule this establishes: never paste a settings page into a chat. Screenshot the part you need, or describe it.
 
 Customer email addresses appearing in the HubSpot docs were redacted to `<redacted>@domain` before those files were committed here, since this repo is public. The domains are kept because the analysis is about domain matching. Re-check this if the docs are ever regenerated from source.
 
