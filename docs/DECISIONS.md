@@ -19,6 +19,10 @@ If it is ever revisited, `chat.update` beats delete: one permanent message that 
 
 **Revisited and closed on 2026-08-04.** Four test messages accumulated in the channel during setup and prompted a second look at the bot-token rework. Decision: delete those four by hand and keep the webhook. Steady state is one message a day, which is not worth a token, a scope, a channel invite, a fifth secret and a state file committed back by the Action on every run.
 
+**The by-hand cleanup then failed, same day.** Martin's Slack account cannot delete messages in `#growth-and-marketing`. Webhook posts are app messages, which only a workspace owner or admin can remove, and the Tilework workspace does not grant him that. The five test messages (four, plus one from the post-rotation verification run) are staying. Nobody is asking an owner for deletion rights over five messages.
+
+The consequence for the decision above: "delete by hand" is not actually available as a cleanup path in this workspace. If channel tidiness ever matters more than it does now, the only real options are a bot token with `chat:delete` on messages the bot itself posted via `chat.postMessage`, or an owner doing it. The arguments against that rework have not changed.
+
 Target channel is `#growth-and-marketing`.
 
 ---
@@ -81,9 +85,19 @@ A live Slack token beginning `xoxe.xoxp-` was pasted into the working chat durin
 
 A second exposure followed: the Incoming Webhooks settings page was pasted into the same chat, and Slack's "sample curl request" on that page renders the real webhook URL once one exists. Lower severity than the token, since a webhook only permits posting into one channel and reads nothing, but it allows anyone holding it to post there. The fix is to delete the webhook on that page, add a new one, and replace the `POSTHOG_SLACK_KEY_GROWTH` secret.
 
-**Status: the token is revoked. The webhook rotation is still outstanding.**
+A third exposure followed during the rotation itself: the same page was pasted again to compare the two webhook rows, which re-exposed the freshly minted URL in the sample curl. It was rotated a second time.
 
-The general rule this establishes: never paste a settings page into a chat. Screenshot the part you need, or describe it.
+**Status, 2026-08-04 16:19 UTC: closed.** Token revoked, webhook rotated twice, `POSTHOG_SLACK_KEY_GROWTH` updated, and run `30928621268` posted successfully on the new URL. All three exposed credentials are dead.
+
+**How to rotate the webhook**, since the UI does not make it obvious:
+
+1. Slack app "PostHog posts to Slack" → **OAuth & Permissions** → **Revoke Tokens**. There is no per-webhook delete button. Revoking all tokens is the only way to invalidate an existing URL, and it takes the bot token with it.
+2. **Reinstall to Tilework** → choose `#growth-and-marketing` → Allow. The `incoming-webhook` scope is granted by that flow; no manual scope editing.
+3. **Incoming Webhooks** → copy the **bottom-most** row. Revoked webhooks stay listed forever and look identical (same channel, same "Added By", same date), so position is the only way to tell them apart. Newest is last.
+4. `gh secret set POSTHOG_SLACK_KEY_GROWTH --repo MartinStuebler/PostHog-web-analytics --body "$(pbpaste)"`
+5. `gh workflow run daily-digest.yml` and check the log says `Posted.`
+
+The general rule this establishes: never paste a settings page into a chat. Screenshot the part you need, or describe it. The sample curl at the top of the Incoming Webhooks page is a live secret, not documentation.
 
 Customer email addresses appearing in the HubSpot docs were redacted to `<redacted>@domain` before those files were committed here, since this repo is public. The domains are kept because the analysis is about domain matching. Re-check this if the docs are ever regenerated from source.
 
