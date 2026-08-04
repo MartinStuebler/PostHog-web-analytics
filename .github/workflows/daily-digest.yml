@@ -20,6 +20,10 @@ jobs:
 
       - name: Post digest
         env:
-          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          # The repo secret names do not match what they hold. Mapping, confirmed
+          # by Martin: POTSHOT_TO_SLACK_GROWTH is the PostHog API key, and
+          # POSTHOG_SLACK_KEY_GROWTH is the Slack webhook URL. Worth renaming
+          # both one day; until then do not "fix" these by matching on the name.
+          POSTHOG_API_KEY: ${{ secrets.POTSHOT_TO_SLACK_GROWTH }}
+          SLACK_WEBHOOK_URL: ${{ secrets.POSTHOG_SLACK_KEY_GROWTH }}
         run: python3 digest.py
