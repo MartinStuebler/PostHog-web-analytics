@@ -77,11 +77,11 @@ Three ways to go once he replies:
 
 A live Slack token beginning `xoxe.xoxp-` was pasted into the working chat during setup, and is therefore in that transcript. Revocation was requested immediately via **OAuth & Permissions → Revoke All OAuth Tokens**, or by deleting the app outright.
 
-**This has not been independently verified as revoked.** Confirm it.
+**Revoked, confirmed by Martin on 2026-08-04.** Closed.
 
 A second exposure followed: the Incoming Webhooks settings page was pasted into the same chat, and Slack's "sample curl request" on that page renders the real webhook URL once one exists. Lower severity than the token, since a webhook only permits posting into one channel and reads nothing, but it allows anyone holding it to post there. The fix is to delete the webhook on that page, add a new one, and replace the `POSTHOG_SLACK_KEY_GROWTH` secret.
 
-**Both exposures need confirming as closed.** Neither has been independently verified.
+**Status: the token is revoked. The webhook rotation is still outstanding.**
 
 The general rule this establishes: never paste a settings page into a chat. Screenshot the part you need, or describe it.
 
