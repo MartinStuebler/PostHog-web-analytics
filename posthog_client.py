@@ -106,8 +106,10 @@ def top_sources(api_key: str) -> list[dict]:
     query = f"""
         SELECT
             multiIf(
-                properties.utm_source != '', properties.utm_source,
-                properties.$referring_domain IN ('', '$direct'), 'direct',
+                coalesce(properties.utm_source, '') != '',
+                    properties.utm_source,
+                coalesce(properties.$referring_domain, '') IN ('', '$direct'),
+                    'direct',
                 properties.$referring_domain
             ) AS source,
             uniq(person_id) AS visitors
@@ -127,13 +129,13 @@ def tagged_campaigns(api_key: str) -> list[dict]:
     query = f"""
         SELECT
             properties.utm_campaign AS campaign,
-            properties.utm_source AS source,
+            coalesce(properties.utm_source, 'unknown') AS source,
             uniq(person_id) AS visitors
         FROM events
         WHERE event = '$pageview'
           AND {_window(1)}
           AND {_host_filter()}
-          AND properties.utm_campaign != ''
+          AND coalesce(properties.utm_campaign, '') != ''
         GROUP BY campaign, source
         ORDER BY visitors DESC
         LIMIT 10
